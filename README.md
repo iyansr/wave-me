@@ -2,6 +2,8 @@
 
 This is an official Yarn v1 starter turborepo.
 
+> Learn from: [BuildSpace](https://buildspace.so/p/build-solidity-web3-app)
+
 ## What's inside?
 
 This turborepo uses [Yarn](https://classic.yarnpkg.com/) as a package manager. It includes the following packages/apps:
