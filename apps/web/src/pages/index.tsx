@@ -1,164 +1,134 @@
-import React, { useEffect, useState } from 'react'
-import { ethers } from 'ethers'
-import { MetaMaskInpageProvider } from '@metamask/providers'
+/* eslint-disable @next/next/no-img-element */
+import React, { useState } from 'react'
 import abi from '../utils/abi'
+import {
+  useAccount,
+  useConnect,
+  useContractEvent,
+  useContractRead,
+  useContractWrite,
+  useDisconnect,
+  useEnsAvatar,
+  useEnsName,
+  usePrepareContractWrite,
+  useSigner,
+} from 'wagmi'
 
 const contractAddress = '0x90eb8Ab34693947F0B293033356EDdD5FF7ddFcD'
 
-const getEth = () => {
-  if (typeof window === 'undefined') {
-    return null
-  }
-
-  return window.ethereum as MetaMaskInpageProvider
-}
-
-const initAccount = async () => {
-  try {
-    const provider = getEth()
-
-    if (!provider) {
-      alert('Please Install MetaMask')
-    }
-    const accounts = (await provider?.request({ method: 'eth_accounts' })) as Array<unknown>
-
-    if (accounts.length === 0) {
-      console.log('No Accounts')
-      return null
-    }
-
-    const acc = accounts[0] as string
-
-    console.log({ acc })
-
-    return acc
-  } catch (error) {
-    console.log(error)
-    return null
-  }
-}
-
 export default function App() {
-  const [account, setAccount] = useState<string>()
   const [allWaves, setAllWaves] = useState<any[]>([])
+  const [message, setMessage] = useState<string>('')
+  const { address, connector, isConnected } = useAccount()
+  const { data: signer } = useSigner()
+  const { connect, connectors, error, isLoading, pendingConnector } = useConnect()
+  const { data: ensAvatar } = useEnsAvatar({ address })
+  const { data: ensName } = useEnsName({ address })
+  const { disconnect } = useDisconnect()
 
-  const getAllWaves = async () => {
-    const eth = getEth()
+  const {
+    config,
+    isLoading: preparing,
+    isError: isPrepareError,
+    error: prepareError,
+  } = usePrepareContractWrite({
+    address: contractAddress,
+    abi,
+    signer,
+    functionName: 'wave',
+    args: [message],
+    enabled: !!message,
+  })
 
-    if (!eth) return
+  const { isLoading: loadingWrite, error: waveError, writeAsync, isError } = useContractWrite(config)
 
-    const provider = new ethers.providers.Web3Provider(eth as any)
-    const signer = provider.getSigner()
-    const contract = new ethers.Contract(contractAddress, abi, signer)
-
-    const waves = await contract.getAllWaves()
-
-    let cleanWaves: any[] = []
-
-    waves.forEach((wave: any) => {
-      cleanWaves.push({
-        address: wave.waver,
-        timestamp: new Date(wave.timestamp * 1000),
-        message: wave.message,
-      })
-    })
-
-    setAllWaves(cleanWaves)
-  }
-
-  /**
-   * Listen in for emitter events!
-   */
-  useEffect(() => {
-    let wavePortalContract: any
-    const eth = getEth()
-
-    const onNewWave = (from: any, timestamp: number, message: any) => {
-      console.log('NewWave', from, timestamp, message)
+  useContractEvent({
+    address: contractAddress,
+    abi,
+    eventName: 'NewWave',
+    listener(from, timestamp, message) {
       setAllWaves((prevState) => [
         ...prevState,
         {
           address: from,
-          timestamp: new Date(timestamp * 1000),
+          timestamp: new Date(timestamp.toNumber() * 1000),
           message: message,
         },
       ])
-    }
+    },
+  })
 
-    if (eth) {
-      const provider = new ethers.providers.Web3Provider(eth as any)
-      const signer = provider.getSigner()
+  useContractRead({
+    abi,
+    address: contractAddress,
+    functionName: 'getAllWaves',
+    onSuccess(waves) {
+      let cleanWaves: any[] = []
 
-      wavePortalContract = new ethers.Contract(contractAddress, abi, signer)
-      wavePortalContract.on('NewWave', onNewWave)
-    }
+      waves.forEach((wave: (typeof waves)[0]) => {
+        cleanWaves.push({
+          address: wave.waver,
+          timestamp: new Date(wave.timestamp.toNumber() * 1000),
+          message: wave.message,
+        })
+      })
 
-    return () => {
-      if (wavePortalContract) {
-        wavePortalContract.off('NewWave', onNewWave)
-      }
-    }
-  }, [])
-
-  const wave = async () => {
-    const eth = getEth()
-
-    if (!eth) return
-
-    const provider = new ethers.providers.Web3Provider(eth as any)
-    const signer = provider.getSigner()
-
-    const waveContract = new ethers.Contract(contractAddress, abi, signer)
-    const message = prompt('Write Message')
-    if (!message) {
-      alert('Write a message!')
-      return
-    }
-    const waveEvent = await waveContract.wave(message, { gasLimit: 300_000 })
-    await waveEvent.wait()
-  }
-
-  const connect = async () => {
-    try {
-      const eth = getEth()
-
-      if (!eth) return
-
-      const acc = (await eth?.request({ method: 'eth_requestAccounts' })) as Array<string>
-      setAccount(acc[0])
-    } catch (error) {
-      console.log(error)
-    }
-  }
-
-  useEffect(() => {
-    getAllWaves()
-  }, [])
-
-  useEffect(() => {
-    const getAccount = async () => {
-      const acc = await initAccount()
-      if (acc) {
-        setAccount(acc)
-      }
-    }
-    getAccount()
-  }, [])
+      setAllWaves(cleanWaves)
+    },
+  })
 
   return (
     <div className="mainContainer">
       <div className="dataContainer">
         <div className="header">👋 Hey there!</div>
 
-        {!account ? (
-          <button className="waveButton" onClick={connect}>
-            Connect
-          </button>
+        {!isConnected ? (
+          connectors.map((conn) => (
+            <button key={conn.id} className="waveButton" onClick={() => connect({ connector: conn })}>
+              Connect With {conn.name}
+              {!conn.ready && ' (unsupported)'}
+              {isLoading && conn.id === pendingConnector?.id && ' (connecting)'}
+            </button>
+          ))
         ) : (
-          <button className="waveButton" onClick={wave}>
-            Wave at Me
-          </button>
+          <div style={{ textAlign: 'center' }}>
+            {ensAvatar && <img src={ensAvatar} alt="ENS Avatar" />}
+
+            <div>{ensName ? `${ensName} (${address})` : address}</div>
+            <div>Connected to {connector?.name}</div>
+            <input
+              type="text"
+              name="message"
+              id="message"
+              placeholder="Write a message"
+              onChange={(e) => setMessage(e.target.value)}
+              value={message}
+            />
+            <div style={{ display: 'flex', gap: 16, alignItems: 'center', justifyContent: 'center' }}>
+              <button
+                disabled={loadingWrite || !writeAsync || preparing || !message}
+                className="waveButton"
+                onClick={async () => {
+                  await writeAsync?.()
+                  setMessage('')
+                }}
+              >
+                Wave at Me {(loadingWrite || !writeAsync || preparing) && '(loading...)'}
+              </button>
+              <button className="waveButton" onClick={() => disconnect()}>
+                Disconnect
+              </button>
+            </div>
+
+            {(isPrepareError || isError) && (
+              <div style={{ position: 'relative', overflow: 'scroll' }}>
+                <div style={{ whiteSpace: 'pre-line' }}>Error: {(prepareError || waveError)?.message}</div>
+              </div>
+            )}
+          </div>
         )}
+
+        {error && <div>{error.message}</div>}
 
         <h3>All Waves:</h3>
 
