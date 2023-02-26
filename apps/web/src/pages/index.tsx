@@ -3,7 +3,7 @@ import { ethers } from 'ethers'
 import { MetaMaskInpageProvider } from '@metamask/providers'
 import abi from '../utils/abi'
 
-const contractAddress = '0x17ca5115F29095bF545a159f3BBF3f65EB5a703D'
+const contractAddress = '0x90eb8Ab34693947F0B293033356EDdD5FF7ddFcD'
 
 const getEth = () => {
   if (typeof window === 'undefined') {
@@ -40,7 +40,7 @@ const initAccount = async () => {
 
 export default function App() {
   const [account, setAccount] = useState<string>()
-  const [allWaves, setAllWaves] = useState<Array<any>>()
+  const [allWaves, setAllWaves] = useState<any[]>([])
 
   const getAllWaves = async () => {
     const eth = getEth()
@@ -66,6 +66,40 @@ export default function App() {
     setAllWaves(cleanWaves)
   }
 
+  /**
+   * Listen in for emitter events!
+   */
+  useEffect(() => {
+    let wavePortalContract: any
+    const eth = getEth()
+
+    const onNewWave = (from: any, timestamp: number, message: any) => {
+      console.log('NewWave', from, timestamp, message)
+      setAllWaves((prevState) => [
+        ...prevState,
+        {
+          address: from,
+          timestamp: new Date(timestamp * 1000),
+          message: message,
+        },
+      ])
+    }
+
+    if (eth) {
+      const provider = new ethers.providers.Web3Provider(eth as any)
+      const signer = provider.getSigner()
+
+      wavePortalContract = new ethers.Contract(contractAddress, abi, signer)
+      wavePortalContract.on('NewWave', onNewWave)
+    }
+
+    return () => {
+      if (wavePortalContract) {
+        wavePortalContract.off('NewWave', onNewWave)
+      }
+    }
+  }, [])
+
   const wave = async () => {
     const eth = getEth()
 
@@ -80,10 +114,8 @@ export default function App() {
       alert('Write a message!')
       return
     }
-    const waveEvent = await waveContract.wave(message)
-
+    const waveEvent = await waveContract.wave(message, { gasLimit: 300_000 })
     await waveEvent.wait()
-    await getAllWaves()
   }
 
   const connect = async () => {
